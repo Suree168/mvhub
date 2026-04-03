@@ -4,28 +4,34 @@ import { Play, Star, Clock, Calendar, Share2, ChevronLeft, Plus, Check, Film } f
 import { Button } from '@/components/ui/button';
 import { useMovieStore } from '@/store/movieStore';
 import { useMovieDetails } from '@/hooks/useMovies';
-import { getImageUrl, getBackdropUrl } from '@/services/tmdbApi';
+import { getImageUrl, getBackdropUrl, convertTMDBMovie } from '@/services/tmdbApi';
 import MovieSection from '@/components/MovieSection';
 import type { Movie } from '@/types/movie';
 
-// Convert TMDB detail to our Movie format
-const convertTMDBDetailToMovie = (tmdbMovie: any): Movie => {
-  return {
-    id: tmdbMovie.id.toString(),
-    title: tmdbMovie.title,
-    titleTh: tmdbMovie.original_title !== tmdbMovie.title ? tmdbMovie.original_title : undefined,
-    year: new Date(tmdbMovie.release_date).getFullYear() || 2024,
-    rating: parseFloat(tmdbMovie.vote_average.toFixed(1)),
-    quality: tmdbMovie.vote_average >= 7 ? '4K' : tmdbMovie.vote_average >= 5 ? 'HD' : 'Zoom',
-    audio: 'เสียงไทย',
-    poster: getImageUrl(tmdbMovie.poster_path, 'w500'),
-    backdrop: getBackdropUrl(tmdbMovie.backdrop_path, 'w1280'),
-    genres: tmdbMovie.genres?.map((g: any) => g.name) || [],
-    duration: tmdbMovie.runtime ? `${Math.floor(tmdbMovie.runtime / 60)}h ${tmdbMovie.runtime % 60}m` : undefined,
-    synopsis: tmdbMovie.overview,
-    isNew: new Date(tmdbMovie.release_date) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-    isSeries: false,
-  };
+// Convert TMDB detail to our Movie format (detail has genres as objects)
+const convertTMDBDetailToMovie = (tmdbMovie: any): Movie | null => {
+  try {
+    if (!tmdbMovie || !tmdbMovie.id) return null;
+    return {
+      id: tmdbMovie.id.toString(),
+      title: tmdbMovie.title || tmdbMovie.name || 'Unknown',
+      titleTh: tmdbMovie.original_title !== tmdbMovie.title ? tmdbMovie.original_title : undefined,
+      year: tmdbMovie.release_date ? new Date(tmdbMovie.release_date).getFullYear() : 2024,
+      rating: tmdbMovie.vote_average ? parseFloat(tmdbMovie.vote_average.toFixed(1)) : 0,
+      quality: tmdbMovie.vote_average >= 7 ? '4K' : tmdbMovie.vote_average >= 5 ? 'HD' : 'Zoom',
+      audio: 'เสียงไทย',
+      poster: getImageUrl(tmdbMovie.poster_path, 'w500'),
+      backdrop: getBackdropUrl(tmdbMovie.backdrop_path, 'w1280'),
+      genres: tmdbMovie.genres?.map((g: any) => g.name) || [],
+      duration: tmdbMovie.runtime ? `${Math.floor(tmdbMovie.runtime / 60)}h ${tmdbMovie.runtime % 60}m` : undefined,
+      synopsis: tmdbMovie.overview || '',
+      isNew: tmdbMovie.release_date ? new Date(tmdbMovie.release_date) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) : false,
+      isSeries: false,
+    };
+  } catch (e) {
+    console.error('Error converting movie detail:', e);
+    return null;
+  }
 };
 
 // Loading skeleton
@@ -63,9 +69,25 @@ export default function MovieDetail() {
   const movie = tmdbMovie ? convertTMDBDetailToMovie(tmdbMovie) : null;
   const isMovieFavorite = movie ? isFavorite(movie.id) : false;
 
-  // Related movies from similar/recommendations
-  const relatedMovies = tmdbMovie?.similar?.results?.slice(0, 8).map(convertTMDBDetailToMovie) ||
-    tmdbMovie?.recommendations?.results?.slice(0, 8).map(convertTMDBDetailToMovie) || [];
+  // Related movies from similar/recommendations - these use genre_ids format, not genres objects
+  // So we use convertTMDBMovie (which handles genre_ids) instead of convertTMDBDetailToMovie
+  const relatedMovies: Movie[] = [];
+  try {
+    const similarResults = tmdbMovie?.similar?.results || [];
+    const recommendationResults = tmdbMovie?.recommendations?.results || [];
+    const rawRelated = similarResults.length > 0 ? similarResults : recommendationResults;
+    rawRelated.slice(0, 8).forEach((item: any) => {
+      try {
+        if (item && item.id) {
+          relatedMovies.push(convertTMDBMovie(item));
+        }
+      } catch (e) {
+        // Skip items that fail to convert
+      }
+    });
+  } catch (e) {
+    console.error('Error converting related movies:', e);
+  }
 
   // Cast information
   const cast = tmdbMovie?.credits?.cast?.slice(0, 6) || [];
@@ -76,7 +98,7 @@ export default function MovieDetail() {
       document.title = `${movie.title} (${movie.year}) - MovieHub`;
     }
     return () => setCurrentMovie(null);
-  }, [movie, setCurrentMovie]);
+  }, [tmdbMovie]); // Use tmdbMovie as dependency instead of movie to avoid infinite re-renders
 
   if (loading) {
     return <MovieDetailSkeleton />;
