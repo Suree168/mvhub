@@ -1,13 +1,19 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ChevronLeft, Play, Pause, Volume2, VolumeX, Maximize, SkipBack, SkipForward, Settings, MessageSquare } from 'lucide-react';
+import { ChevronLeft, MessageSquare, Server, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Slider } from '@/components/ui/slider';
-import { useMovieStore } from '@/store/movieStore';
 import { useMovieDetails } from '@/hooks/useMovies';
 import { getImageUrl, getBackdropUrl, convertTMDBMovie } from '@/services/tmdbApi';
 import MovieSection from '@/components/MovieSection';
 import type { Movie } from '@/types/movie';
+
+// Embed sources that support TMDB movie IDs
+const EMBED_SOURCES = [
+  { id: 'vidlink', name: 'Server 1', getUrl: (id: string, lang: string) => `https://vidlink.pro/movie/${id}?primaryColor=E50914&autoplay=false${lang === 'th' ? '&sub=th' : ''}` },
+  { id: 'moviesapi', name: 'Server 2', getUrl: (id: string, lang: string) => `https://moviesapi.club/movie/${id}` },
+  { id: 'multiembed', name: 'Server 3', getUrl: (id: string, lang: string) => `https://multiembed.mov/?video_id=${id}&tmdb=1` },
+  { id: 'vidsrc_cc', name: 'Server 4', getUrl: (id: string, lang: string) => `https://vidsrc.cc/v2/embed/movie/${id}` },
+];
 
 // Convert TMDB detail format to Movie
 const convertTMDBDetailToMovie = (tmdbMovie: any): Movie | null => {
@@ -38,14 +44,17 @@ const convertTMDBDetailToMovie = (tmdbMovie: any): Movie | null => {
 export default function VideoPlayer() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const { addToHistory, getWatchProgress } = useMovieStore();
 
   // Fetch movie details from TMDB API
   const { movie: tmdbMovie, loading, error: fetchError } = useMovieDetails(id);
   const movie = tmdbMovie ? convertTMDBDetailToMovie(tmdbMovie) : null;
 
-  // Related movies from similar results
+  // Selected embed source
+  const [selectedSource, setSelectedSource] = useState(0);
+  const [iframeError, setIframeError] = useState(false);
+  const [audioPref, setAudioPref] = useState('th'); // 'th' or 'en'
+
+  // Related movies
   const relatedMovies: Movie[] = [];
   try {
     const similarResults = tmdbMovie?.similar?.results || [];
@@ -57,128 +66,23 @@ export default function VideoPlayer() {
           relatedMovies.push(convertTMDBMovie(item));
         }
       } catch (e) {
-        // Skip items that fail to convert
+        // Skip
       }
     });
   } catch (e) {
     console.error('Error converting related movies:', e);
   }
 
-  // Embed video URL - try to find a YouTube trailer from TMDB videos
-  const trailerKey = tmdbMovie?.videos?.results?.find(
-    (v: any) => v.site === 'YouTube' && (v.type === 'Trailer' || v.type === 'Teaser')
-  )?.key;
-
-  // Player state
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [volume, setVolume] = useState(1);
-  const [isMuted, setIsMuted] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [showControls, setShowControls] = useState(true);
-  const [selectedQuality, setSelectedQuality] = useState('1080p');
-  const [selectedAudio, setSelectedAudio] = useState('thai');
-  const [showSettings, setShowSettings] = useState(false);
-  const [useEmbedPlayer, setUseEmbedPlayer] = useState(true);
-
-  const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   useEffect(() => {
     if (movie) {
       document.title = `กำลังเล่น: ${movie.title} - MovieHub`;
-      // If there's a trailer, default to embed; otherwise use HTML5 player
-      setUseEmbedPlayer(!!trailerKey);
     }
-  }, [movie, trailerKey]);
+  }, [movie]);
 
-  // Auto-hide controls
-  const handleMouseMove = () => {
-    setShowControls(true);
-    if (controlsTimeoutRef.current) {
-      clearTimeout(controlsTimeoutRef.current);
-    }
-    controlsTimeoutRef.current = setTimeout(() => {
-      if (isPlaying) {
-        setShowControls(false);
-      }
-    }, 3000);
-  };
-
-  // Video controls (for HTML5 player fallback)
-  const togglePlay = () => {
-    if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.pause();
-      } else {
-        videoRef.current.play();
-      }
-      setIsPlaying(!isPlaying);
-    }
-  };
-
-  const handleTimeUpdate = () => {
-    if (videoRef.current) {
-      setCurrentTime(videoRef.current.currentTime);
-    }
-  };
-
-  const handleLoadedMetadata = () => {
-    if (videoRef.current) {
-      setDuration(videoRef.current.duration);
-    }
-  };
-
-  const handleSeek = (value: number[]) => {
-    if (videoRef.current) {
-      videoRef.current.currentTime = value[0];
-      setCurrentTime(value[0]);
-    }
-  };
-
-  const toggleMute = () => {
-    if (videoRef.current) {
-      videoRef.current.muted = !isMuted;
-      setIsMuted(!isMuted);
-    }
-  };
-
-  const handleVolumeChange = (value: number[]) => {
-    if (videoRef.current) {
-      videoRef.current.volume = value[0];
-      setVolume(value[0]);
-      setIsMuted(value[0] === 0);
-    }
-  };
-
-  const toggleFullscreen = () => {
-    const container = document.getElementById('video-container');
-    if (container) {
-      if (!isFullscreen) {
-        container.requestFullscreen();
-      } else {
-        document.exitFullscreen();
-      }
-      setIsFullscreen(!isFullscreen);
-    }
-  };
-
-  const skip = (seconds: number) => {
-    if (videoRef.current) {
-      videoRef.current.currentTime += seconds;
-    }
-  };
-
-  // Format time
-  const formatTime = (time: number) => {
-    const hours = Math.floor(time / 3600);
-    const minutes = Math.floor((time % 3600) / 60);
-    const seconds = Math.floor(time % 60);
-    if (hours > 0) {
-      return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-    }
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-  };
+  // Reset error when changing source
+  useEffect(() => {
+    setIframeError(false);
+  }, [selectedSource]);
 
   // Loading state
   if (loading) {
@@ -192,7 +96,7 @@ export default function VideoPlayer() {
     );
   }
 
-  if (fetchError || !movie) {
+  if (fetchError || !movie || !id) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
         <div className="text-center">
@@ -206,237 +110,107 @@ export default function VideoPlayer() {
     );
   }
 
+  const currentSource = EMBED_SOURCES[selectedSource];
+  const embedUrl = currentSource.getUrl(id, audioPref);
+
   return (
     <div className="min-h-screen bg-black">
-      {/* Video Player Container */}
-      <div
-        id="video-container"
-        className="relative w-full aspect-video bg-black"
-        onMouseMove={handleMouseMove}
-        onMouseLeave={() => isPlaying && setShowControls(false)}
-      >
-        {/* YouTube Embed Player (default when trailer is available) */}
-        {useEmbedPlayer && trailerKey ? (
-          <iframe
-            src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&rel=0&modestbranding=1&hl=th`}
-            className="w-full h-full"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            allowFullScreen
-            title={movie.title}
-          />
-        ) : (
-          <>
-            {/* HTML5 Video Player (fallback) */}
-            <video
-              ref={videoRef}
-              className="w-full h-full"
-              poster={movie.backdrop || movie.poster}
-              onTimeUpdate={handleTimeUpdate}
-              onLoadedMetadata={handleLoadedMetadata}
-              onClick={togglePlay}
-              onEnded={() => setIsPlaying(false)}
-            >
-              <source src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4" type="video/mp4" />
-              Your browser does not support the video tag.
-            </video>
+      {/* Top Navigation */}
+      <div className="flex items-center justify-between p-3 bg-[#0a0a0a] border-b border-white/10">
+        <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => navigate(-1)}
+            className="text-white hover:bg-white/20"
+          >
+            <ChevronLeft className="w-6 h-6" />
+          </Button>
+          <div>
+            <h2 className="text-white font-semibold text-sm sm:text-base line-clamp-1">{movie.title}</h2>
+            {movie.titleTh && <p className="text-gray-400 text-xs line-clamp-1">{movie.titleTh}</p>}
+          </div>
+        </div>
 
-            {/* Play Overlay (when paused) */}
-            {!isPlaying && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/40 cursor-pointer" onClick={togglePlay}>
-                <div className="w-20 h-20 bg-red-600 rounded-full flex items-center justify-center hover:scale-110 transition-transform">
-                  <Play className="w-10 h-10 text-white fill-white ml-1" />
-                </div>
-              </div>
-            )}
-
-            {/* Controls Overlay */}
-            <div
-              className={`absolute inset-0 flex flex-col justify-between transition-opacity duration-300 ${
-                showControls ? 'opacity-100' : 'opacity-0'
-              }`}
-            >
-              {/* Top Bar */}
-              <div className="flex items-center justify-between p-4 bg-gradient-to-b from-black/80 to-transparent">
-                <div className="flex items-center gap-4">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => navigate(-1)}
-                    className="text-white hover:bg-white/20"
-                  >
-                    <ChevronLeft className="w-6 h-6" />
-                  </Button>
-                  <div>
-                    <h2 className="text-white font-semibold">{movie.title}</h2>
-                    {movie.titleTh && <p className="text-gray-400 text-sm">{movie.titleTh}</p>}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-white hover:bg-white/20"
-                    onClick={() => setShowSettings(!showSettings)}
-                  >
-                    <Settings className="w-5 h-5" />
-                  </Button>
-                </div>
-              </div>
-
-              {/* Settings Panel */}
-              {showSettings && (
-                <div className="absolute top-16 right-4 bg-black/90 rounded-lg p-4 min-w-[200px] z-50">
-                  <div className="mb-4">
-                    <p className="text-white text-sm font-semibold mb-2">คุณภาพ</p>
-                    {['4K', '1080p', '720p', '480p', '360p'].map((quality) => (
-                      <button
-                        key={quality}
-                        onClick={() => setSelectedQuality(quality)}
-                        className={`block w-full text-left px-3 py-2 rounded text-sm ${
-                          selectedQuality === quality
-                            ? 'bg-red-600 text-white'
-                            : 'text-gray-300 hover:bg-white/10'
-                        }`}
-                      >
-                        {quality}
-                      </button>
-                    ))}
-                  </div>
-                  <div>
-                    <p className="text-white text-sm font-semibold mb-2">เสียง</p>
-                    {[
-                      { id: 'thai', label: 'พากย์ไทย' },
-                      { id: 'sub', label: 'ซับไทย' },
-                      { id: 'en', label: 'อังกฤษ' },
-                    ].map((audio) => (
-                      <button
-                        key={audio.id}
-                        onClick={() => setSelectedAudio(audio.id)}
-                        className={`block w-full text-left px-3 py-2 rounded text-sm ${
-                          selectedAudio === audio.id
-                            ? 'bg-red-600 text-white'
-                            : 'text-gray-300 hover:bg-white/10'
-                        }`}
-                      >
-                        {audio.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Bottom Controls */}
-              <div className="p-4 bg-gradient-to-t from-black/80 to-transparent">
-                {/* Progress Bar */}
-                <div className="mb-4">
-                  <Slider
-                    value={[currentTime]}
-                    max={duration || 100}
-                    step={1}
-                    onValueChange={handleSeek}
-                    className="cursor-pointer"
-                  />
-                </div>
-
-                {/* Control Buttons */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    {/* Play/Pause */}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={togglePlay}
-                      className="text-white hover:bg-white/20"
-                    >
-                      {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 fill-white" />}
-                    </Button>
-
-                    {/* Skip Buttons */}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => skip(-10)}
-                      className="text-white hover:bg-white/20"
-                    >
-                      <SkipBack className="w-5 h-5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => skip(10)}
-                      className="text-white hover:bg-white/20"
-                    >
-                      <SkipForward className="w-5 h-5" />
-                    </Button>
-
-                    {/* Volume */}
-                    <div className="flex items-center gap-2 group">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={toggleMute}
-                        className="text-white hover:bg-white/20"
-                      >
-                        {isMuted || volume === 0 ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
-                      </Button>
-                      <div className="w-0 overflow-hidden group-hover:w-24 transition-all">
-                        <Slider
-                          value={[isMuted ? 0 : volume]}
-                          max={1}
-                          step={0.1}
-                          onValueChange={handleVolumeChange}
-                          className="w-20"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Time Display */}
-                    <span className="text-white text-sm ml-2">
-                      {formatTime(currentTime)} / {formatTime(duration)}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {/* Quality Badge */}
-                    <span className="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded">
-                      {selectedQuality}
-                    </span>
-
-                    {/* Fullscreen */}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={toggleFullscreen}
-                      className="text-white hover:bg-white/20"
-                    >
-                      <Maximize className="w-5 h-5" />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* Top Bar for Embed Player */}
-        {useEmbedPlayer && trailerKey && (
-          <div className="absolute top-0 left-0 right-0 flex items-center justify-between p-4 bg-gradient-to-b from-black/80 to-transparent z-10 pointer-events-none">
-            <div className="flex items-center gap-4 pointer-events-auto">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => navigate(-1)}
-                className="text-white hover:bg-white/20"
+        {/* Control Options (Language & Server) */}
+        <div className="flex flex-col sm:flex-row items-end sm:items-center gap-4">
+          {/* Audio Selection */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-400 font-medium">เสียง:</span>
+            <div className="flex bg-[#141414] rounded-lg p-0.5">
+              <button
+                onClick={() => setAudioPref('th')}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
+                  audioPref === 'th' ? 'bg-red-600 text-white' : 'text-gray-400 hover:text-white'
+                }`}
               >
-                <ChevronLeft className="w-6 h-6" />
-              </Button>
-              <div>
-                <h2 className="text-white font-semibold">{movie.title}</h2>
-                {movie.titleTh && <p className="text-gray-400 text-sm">{movie.titleTh}</p>}
+                พากย์ไทย/ซับไทย
+              </button>
+              <button
+                onClick={() => setAudioPref('en')}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
+                  audioPref === 'en' ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                Soundtrack (EN)
+              </button>
+            </div>
+          </div>
+
+          {/* Server Selection */}
+          <div className="flex items-center justify-end gap-2">
+            <Server className="w-4 h-4 text-gray-400 hidden sm:block" />
+            {EMBED_SOURCES.map((source, index) => (
+              <button
+                key={source.id}
+                onClick={() => setSelectedSource(index)}
+                className={`px-2.5 py-1 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-medium rounded-lg transition-all border border-transparent ${
+                  selectedSource === index
+                    ? 'bg-red-600/20 text-red-500 border-red-500/50'
+                    : 'bg-white/5 text-gray-400 hover:bg-white/10'
+                }`}
+              >
+                {source.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Video Player - Embed iframe */}
+      <div className="relative w-full bg-black" style={{ height: 'calc(100vh - 120px)', maxHeight: '80vh' }}>
+        {iframeError && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-10">
+            <div className="text-center p-6">
+              <AlertTriangle className="w-12 h-12 text-yellow-500 mx-auto mb-4" />
+              <p className="text-white text-lg mb-2">เซิร์ฟเวอร์นี้ไม่สามารถเล่นได้</p>
+              <p className="text-gray-400 text-sm mb-4">กรุณาเลือกเซิร์ฟเวอร์อื่น</p>
+              <div className="flex gap-2 justify-center">
+                {EMBED_SOURCES.map((source, index) => (
+                  index !== selectedSource && (
+                    <button
+                      key={source.id}
+                      onClick={() => setSelectedSource(index)}
+                      className="px-4 py-2 text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+                    >
+                      {source.name}
+                    </button>
+                  )
+                ))}
               </div>
             </div>
           </div>
         )}
+        <iframe
+          key={`${id}-${selectedSource}`}
+          src={embedUrl}
+          className="w-full h-full border-0"
+          allowFullScreen
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+          referrerPolicy="origin"
+          title={movie.title}
+          onError={() => setIframeError(true)}
+        />
       </div>
 
       {/* Movie Info Below Player */}
@@ -470,6 +244,13 @@ export default function VideoPlayer() {
                   {genre}
                 </span>
               ))}
+            </div>
+
+            {/* Tip */}
+            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+              <p className="text-yellow-400 text-sm">
+                💡 <strong>เคล็ดลับ:</strong> หากเซิร์ฟเวอร์ปัจจุบันไม่โหลด ให้ลองเปลี่ยนเซิร์ฟเวอร์ด้านบน
+              </p>
             </div>
           </div>
 
