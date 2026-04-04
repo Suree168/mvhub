@@ -1,108 +1,57 @@
-import { useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Play, Star, Clock, Calendar, Share2, ChevronLeft, Plus, Check, Film } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useMovieStore } from '@/store/movieStore';
-import { useMovieDetails } from '@/hooks/useMovies';
-import { getImageUrl, getBackdropUrl, convertTMDBMovie } from '@/services/tmdbApi';
-import MovieSection from '@/components/MovieSection';
-import type { Movie } from '@/types/movie';
+import { getImageUrl, getBackdropUrl } from '@/services/tmdbApi';
+import axios from 'axios';
 
-// Convert TMDB detail to our Movie format (detail has genres as objects)
-const convertTMDBDetailToMovie = (tmdbMovie: any): Movie | null => {
-  try {
-    if (!tmdbMovie || !tmdbMovie.id) return null;
-    const quality = (tmdbMovie.vote_average >= 7 ? '4K' : tmdbMovie.vote_average >= 5 ? 'HD' : 'Zoom') as '4K' | 'HD' | 'Zoom';
-    return {
-      id: tmdbMovie.id.toString(),
-      title: tmdbMovie.title || tmdbMovie.name || 'Unknown',
-      titleTh: tmdbMovie.original_title !== tmdbMovie.title ? tmdbMovie.original_title : undefined,
-      year: tmdbMovie.release_date ? new Date(tmdbMovie.release_date).getFullYear() : 2024,
-      rating: tmdbMovie.vote_average ? parseFloat(tmdbMovie.vote_average.toFixed(1)) : 0,
-      quality,
-      audio: 'เสียงไทย',
-      poster: getImageUrl(tmdbMovie.poster_path, 'w500'),
-      backdrop: getBackdropUrl(tmdbMovie.backdrop_path, 'w1280'),
-      genres: tmdbMovie.genres?.map((g: any) => g.name) || [],
-      duration: tmdbMovie.runtime ? `${Math.floor(tmdbMovie.runtime / 60)}h ${tmdbMovie.runtime % 60}m` : undefined,
-      synopsis: tmdbMovie.overview || '',
-      isNew: tmdbMovie.release_date ? new Date(tmdbMovie.release_date) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) : false,
-      isSeries: false,
-    };
-  } catch (e) {
-    console.error('Error converting movie detail:', e);
-    return null;
-  }
-};
-
-// Loading skeleton
-const MovieDetailSkeleton = () => (
-  <div className="min-h-screen bg-[#0a0a0a]">
-    <div className="relative h-[60vh] lg:h-[70vh]">
-      <div className="absolute inset-0 shimmer" />
-    </div>
-    <div className="relative -mt-32 lg:-mt-48 z-10 px-4">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex flex-col lg:flex-row gap-8">
-          <div className="w-64 sm:w-72 lg:w-80 mx-auto lg:mx-0">
-            <div className="aspect-[2/3] bg-[#1a1a1a] rounded-xl shimmer" />
-          </div>
-          <div className="flex-1 space-y-4">
-            <div className="h-8 bg-[#1a1a1a] rounded w-3/4 shimmer" />
-            <div className="h-6 bg-[#1a1a1a] rounded w-1/2 shimmer" />
-            <div className="h-4 bg-[#1a1a1a] rounded w-full shimmer" />
-            <div className="h-4 bg-[#1a1a1a] rounded w-2/3 shimmer" />
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-);
+const TMDB_API_KEY = import.meta.env.VITE_TMDB_API_KEY || '503341fe6d9d6630c68b8a7ec633fbad';
 
 export default function MovieDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { addToFavorites, removeFromFavorites, isFavorite, setCurrentMovie } = useMovieStore();
-
-  // Fetch movie details from API
-  const { movie: tmdbMovie, loading, error } = useMovieDetails(id);
-
-  const movie = tmdbMovie ? convertTMDBDetailToMovie(tmdbMovie) : null;
-  const isMovieFavorite = movie ? isFavorite(movie.id) : false;
-
-  // Related movies from similar/recommendations - these use genre_ids format, not genres objects
-  // So we use convertTMDBMovie (which handles genre_ids) instead of convertTMDBDetailToMovie
-  const relatedMovies: Movie[] = [];
-  try {
-    const similarResults = tmdbMovie?.similar?.results || [];
-    const recommendationResults = tmdbMovie?.recommendations?.results || [];
-    const rawRelated = similarResults.length > 0 ? similarResults : recommendationResults;
-    rawRelated.slice(0, 8).forEach((item: any) => {
-      try {
-        if (item && item.id) {
-          relatedMovies.push(convertTMDBMovie(item));
-        }
-      } catch (e) {
-        // Skip items that fail to convert
-      }
-    });
-  } catch (e) {
-    console.error('Error converting related movies:', e);
-  }
-
-  // Cast information
-  const cast = tmdbMovie?.credits?.cast?.slice(0, 6) || [];
+  const [movie, setMovie] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [cast, setCast] = useState<any[]>([]);
 
   useEffect(() => {
-    if (movie) {
-      setCurrentMovie(movie);
-      document.title = `${movie.title} (${movie.year}) - MovieHub`;
-    }
-    return () => setCurrentMovie(null);
-  }, [tmdbMovie]); // Use tmdbMovie as dependency instead of movie to avoid infinite re-renders
+    if (!id) return;
+    
+    const fetchMovie = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const res = await axios.get(`https://api.themoviedb.org/3/movie/${id}`, {
+          params: {
+            api_key: TMDB_API_KEY,
+            language: 'th-TH',
+            append_to_response: 'credits',
+          },
+        });
+        setMovie(res.data);
+        setCast((res.data?.credits?.cast || []).slice(0, 6));
+        document.title = `${res.data?.title || 'Movie'} - MovieHub`;
+      } catch (err: any) {
+        console.error('Fetch error:', err);
+        setError(err?.message || 'เกิดข้อผิดพลาด');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchMovie();
+  }, [id]);
 
   if (loading) {
-    return <MovieDetailSkeleton />;
+    return (
+      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-red-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-gray-400">กำลังโหลด...</p>
+        </div>
+      </div>
+    );
   }
 
   if (error || !movie) {
@@ -120,26 +69,15 @@ export default function MovieDetail() {
     );
   }
 
-  const handleFavoriteToggle = () => {
-    if (isMovieFavorite) {
-      removeFromFavorites(movie.id);
-    } else {
-      addToFavorites(movie.id);
-    }
-  };
-
-  const getQualityBadgeClass = (quality: string) => {
-    switch (quality) {
-      case 'HD':
-        return 'bg-green-600';
-      case '4K':
-        return 'bg-purple-600';
-      case 'Zoom':
-        return 'bg-blue-600';
-      default:
-        return 'bg-green-600';
-    }
-  };
+  const title = movie.title || movie.name || 'Unknown';
+  const titleTh = movie.original_title !== movie.title ? movie.original_title : '';
+  const year = movie.release_date ? new Date(movie.release_date).getFullYear() : '';
+  const rating = movie.vote_average ? movie.vote_average.toFixed(1) : '0';
+  const quality = Number(movie.vote_average) >= 7 ? '4K' : Number(movie.vote_average) >= 5 ? 'HD' : 'Zoom';
+  const duration = movie.runtime ? `${Math.floor(movie.runtime / 60)}h ${movie.runtime % 60}m` : '';
+  const genres = (movie.genres || []).map((g: any) => g?.name || '').filter(Boolean);
+  const poster = getImageUrl(movie.poster_path, 'w500');
+  const backdrop = getBackdropUrl(movie.backdrop_path, 'w1280');
 
   return (
     <div className="min-h-screen bg-[#0a0a0a]">
@@ -157,11 +95,7 @@ export default function MovieDetail() {
 
       {/* Hero Backdrop */}
       <div className="relative h-[60vh] lg:h-[70vh]">
-        <img
-          src={movie.backdrop || movie.poster}
-          alt={movie.title}
-          className="w-full h-full object-cover"
-        />
+        <img src={backdrop} alt={title} className="w-full h-full object-cover" />
         <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/50 to-transparent" />
         <div className="absolute inset-0 bg-gradient-to-r from-[#0a0a0a]/80 to-transparent" />
       </div>
@@ -173,77 +107,52 @@ export default function MovieDetail() {
             {/* Poster */}
             <div className="flex-shrink-0 mx-auto lg:mx-0">
               <div className="relative w-64 sm:w-72 lg:w-80 rounded-xl overflow-hidden shadow-2xl">
-                <img
-                  src={movie.poster}
-                  alt={movie.title}
-                  className="w-full aspect-[2/3] object-cover"
-                />
+                <img src={poster} alt={title} className="w-full aspect-[2/3] object-cover" />
                 <div className="absolute top-2 left-2">
-                  <span className={`px-2 py-1 text-xs font-bold text-white rounded ${getQualityBadgeClass(movie.quality)}`}>
-                    {movie.quality}
+                  <span className={`px-2 py-1 text-xs font-bold text-white rounded ${quality === '4K' ? 'bg-purple-600' : quality === 'HD' ? 'bg-green-600' : 'bg-blue-600'}`}>
+                    {quality}
                   </span>
                 </div>
-                {movie.isNew && (
-                  <div className="absolute top-2 right-2">
-                    <span className="px-2 py-1 text-xs font-bold text-white rounded bg-red-600">
-                      NEW
-                    </span>
-                  </div>
-                )}
               </div>
             </div>
 
             {/* Info */}
             <div className="flex-1 text-center lg:text-left">
-              {/* Title */}
-              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white mb-2">
-                {movie.title}
-              </h1>
-              {movie.titleTh && (
-                <h2 className="text-lg sm:text-xl text-gray-400 mb-4">
-                  {movie.titleTh}
-                </h2>
-              )}
+              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white mb-2">{title}</h1>
+              {titleTh && <h2 className="text-lg sm:text-xl text-gray-400 mb-4">{titleTh}</h2>}
 
               {/* Meta Info */}
               <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3 mb-4">
                 <div className="flex items-center gap-1 px-3 py-1 bg-yellow-500/20 rounded-full">
                   <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-                  <span className="text-sm font-semibold text-yellow-400">{movie.rating}</span>
+                  <span className="text-sm font-semibold text-yellow-400">{rating}</span>
                 </div>
-                <div className="flex items-center gap-1 text-gray-400">
-                  <Calendar className="w-4 h-4" />
-                  <span className="text-sm">{movie.year}</span>
-                </div>
-                {movie.duration && (
+                {year && (
                   <div className="flex items-center gap-1 text-gray-400">
-                    <Clock className="w-4 h-4" />
-                    <span className="text-sm">{movie.duration}</span>
+                    <Calendar className="w-4 h-4" />
+                    <span className="text-sm">{year}</span>
                   </div>
                 )}
-                <span className="px-2 py-0.5 text-xs font-bold text-white bg-red-600 rounded">
-                  {movie.audio}
-                </span>
+                {duration && (
+                  <div className="flex items-center gap-1 text-gray-400">
+                    <Clock className="w-4 h-4" />
+                    <span className="text-sm">{duration}</span>
+                  </div>
+                )}
+                <span className="px-2 py-0.5 text-xs font-bold text-white bg-red-600 rounded">เสียงไทย</span>
               </div>
 
               {/* Genres */}
-              <div className="flex flex-wrap justify-center lg:justify-start gap-2 mb-6">
-                {movie.genres.map((genre) => (
-                  <span
-                    key={genre}
-                    className="px-3 py-1 text-sm text-gray-300 bg-white/10 rounded-full hover:bg-white/20 transition-colors cursor-pointer"
-                  >
-                    {genre}
-                  </span>
-                ))}
-              </div>
+              {genres.length > 0 && (
+                <div className="flex flex-wrap justify-center lg:justify-start gap-2 mb-6">
+                  {genres.map((genre: string) => (
+                    <span key={genre} className="px-3 py-1 text-sm text-gray-300 bg-white/10 rounded-full">{genre}</span>
+                  ))}
+                </div>
+              )}
 
               {/* Synopsis */}
-              {movie.synopsis && (
-                <p className="text-gray-300 mb-6 max-w-2xl">
-                  {movie.synopsis}
-                </p>
-              )}
+              {movie.overview && <p className="text-gray-300 mb-6 max-w-2xl">{movie.overview}</p>}
 
               {/* Action Buttons */}
               <div className="flex flex-wrap justify-center lg:justify-start gap-3 mb-6">
@@ -253,28 +162,6 @@ export default function MovieDetail() {
                     ดูหนังเลย
                   </Button>
                 </Link>
-                <Button
-                  size="lg"
-                  variant="outline"
-                  onClick={handleFavoriteToggle}
-                  className={`border-white/30 px-6 ${
-                    isMovieFavorite
-                      ? 'bg-red-600/20 border-red-500 text-red-500'
-                      : 'text-white hover:bg-white/10'
-                  }`}
-                >
-                  {isMovieFavorite ? (
-                    <>
-                      <Check className="w-5 h-5 mr-2" />
-                      ในรายการโปรด
-                    </>
-                  ) : (
-                    <>
-                      <Plus className="w-5 h-5 mr-2" />
-                      เพิ่มในรายการโปรด
-                    </>
-                  )}
-                </Button>
                 <Button
                   size="lg"
                   variant="outline"
@@ -293,19 +180,19 @@ export default function MovieDetail() {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-white/5 rounded-xl">
                 <div>
                   <p className="text-xs text-gray-500 mb-1">คุณภาพ</p>
-                  <p className="text-sm text-white font-semibold">{movie.quality}</p>
+                  <p className="text-sm text-white font-semibold">{quality}</p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 mb-1">เสียง</p>
-                  <p className="text-sm text-white font-semibold">{movie.audio}</p>
+                  <p className="text-sm text-white font-semibold">เสียงไทย</p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 mb-1">ปี</p>
-                  <p className="text-sm text-white font-semibold">{movie.year}</p>
+                  <p className="text-sm text-white font-semibold">{year || '-'}</p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 mb-1">เรตติ้ง</p>
-                  <p className="text-sm text-white font-semibold">{movie.rating}/10</p>
+                  <p className="text-sm text-white font-semibold">{rating}/10</p>
                 </div>
               </div>
             </div>
@@ -317,13 +204,13 @@ export default function MovieDetail() {
       {cast.length > 0 && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
           <h2 className="text-xl lg:text-2xl font-bold text-white mb-6">นักแสดง</h2>
-          <div className="flex gap-4 overflow-x-auto scrollbar-hide pb-4">
+          <div className="flex gap-4 overflow-x-auto pb-4" style={{ scrollbarWidth: 'none' }}>
             {cast.map((actor: any) => (
               <div key={actor.id} className="flex-shrink-0 w-32 text-center">
                 <div className="w-32 h-32 rounded-full overflow-hidden mb-2 bg-[#1a1a1a]">
                   <img
                     src={getImageUrl(actor.profile_path, 'w185')}
-                    alt={actor.name}
+                    alt={actor.name || ''}
                     className="w-full h-full object-cover"
                     onError={(e) => {
                       (e.target as HTMLImageElement).src = 'https://via.placeholder.com/150?text=No+Image';
@@ -335,19 +222,6 @@ export default function MovieDetail() {
               </div>
             ))}
           </div>
-        </div>
-      )}
-
-      {/* Related Movies */}
-      {relatedMovies.length > 0 && (
-        <div className="mt-8">
-          <MovieSection
-            title="หนังที่คุณอาจชอบ"
-            movies={relatedMovies}
-            href="#"
-            showViewAll={false}
-            size="medium"
-          />
         </div>
       )}
     </div>
