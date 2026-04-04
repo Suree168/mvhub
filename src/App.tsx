@@ -8,6 +8,7 @@ import CategoryPage from '@/pages/CategoryPage';
 import SearchPage from '@/pages/SearchPage';
 import FavoritesPage from '@/pages/FavoritesPage';
 import NotFound from '@/pages/NotFound';
+import ErrorBoundary from '@/components/ErrorBoundary';
 
 function App() {
   return (
@@ -19,15 +20,17 @@ function App() {
         </Routes>
 
         <main className="flex-1">
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/movie/:id" element={<MovieDetail />} />
-            <Route path="/watch/:id" element={<VideoPlayer />} />
-            <Route path="/category/:slug" element={<CategoryPage />} />
-            <Route path="/search" element={<SearchPage />} />
-            <Route path="/favorites" element={<FavoritesPage />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
+          <ErrorBoundary>
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/movie/:id" element={<MovieDetail />} />
+              <Route path="/watch/:id" element={<VideoPlayer />} />
+              <Route path="/category/:slug" element={<CategoryPage />} />
+              <Route path="/search" element={<SearchPage />} />
+              <Route path="/favorites" element={<FavoritesPage />} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </ErrorBoundary>
         </main>
 
         <Routes>
