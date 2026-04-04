@@ -10,22 +10,23 @@ import type { Movie } from '@/types/movie';
 // Embed sources that support TMDB movie IDs
 const EMBED_SOURCES = [
   { id: 'vidlink', name: 'Server 1', getUrl: (id: string, lang: string) => `https://vidlink.pro/movie/${id}?primaryColor=E50914&autoplay=false${lang === 'th' ? '&sub=th' : ''}` },
-  { id: 'moviesapi', name: 'Server 2', getUrl: (id: string, lang: string) => `https://moviesapi.club/movie/${id}` },
-  { id: 'multiembed', name: 'Server 3', getUrl: (id: string, lang: string) => `https://multiembed.mov/?video_id=${id}&tmdb=1` },
-  { id: 'vidsrc_cc', name: 'Server 4', getUrl: (id: string, lang: string) => `https://vidsrc.cc/v2/embed/movie/${id}` },
+  { id: 'moviesapi', name: 'Server 2', getUrl: (id: string, _lang: string) => `https://moviesapi.club/movie/${id}` },
+  { id: 'multiembed', name: 'Server 3', getUrl: (id: string, _lang: string) => `https://multiembed.mov/?video_id=${id}&tmdb=1` },
+  { id: 'vidsrc_cc', name: 'Server 4', getUrl: (id: string, _lang: string) => `https://vidsrc.cc/v2/embed/movie/${id}` },
 ];
 
 // Convert TMDB detail format to Movie
 const convertTMDBDetailToMovie = (tmdbMovie: any): Movie | null => {
   try {
     if (!tmdbMovie || !tmdbMovie.id) return null;
+    const quality = (tmdbMovie.vote_average >= 7 ? '4K' : tmdbMovie.vote_average >= 5 ? 'HD' : 'Zoom') as '4K' | 'HD' | 'Zoom';
     return {
       id: tmdbMovie.id.toString(),
       title: tmdbMovie.title || tmdbMovie.name || 'Unknown',
       titleTh: tmdbMovie.original_title !== tmdbMovie.title ? tmdbMovie.original_title : undefined,
       year: tmdbMovie.release_date ? new Date(tmdbMovie.release_date).getFullYear() : 2024,
       rating: tmdbMovie.vote_average ? parseFloat(tmdbMovie.vote_average.toFixed(1)) : 0,
-      quality: tmdbMovie.vote_average >= 7 ? '4K' : tmdbMovie.vote_average >= 5 ? 'HD' : 'Zoom',
+      quality,
       audio: 'เสียงไทย',
       poster: getImageUrl(tmdbMovie.poster_path, 'w500'),
       backdrop: getBackdropUrl(tmdbMovie.backdrop_path, 'w1280'),

@@ -12,13 +12,14 @@ import type { Movie } from '@/types/movie';
 const convertTMDBDetailToMovie = (tmdbMovie: any): Movie | null => {
   try {
     if (!tmdbMovie || !tmdbMovie.id) return null;
+    const quality = (tmdbMovie.vote_average >= 7 ? '4K' : tmdbMovie.vote_average >= 5 ? 'HD' : 'Zoom') as '4K' | 'HD' | 'Zoom';
     return {
       id: tmdbMovie.id.toString(),
       title: tmdbMovie.title || tmdbMovie.name || 'Unknown',
       titleTh: tmdbMovie.original_title !== tmdbMovie.title ? tmdbMovie.original_title : undefined,
       year: tmdbMovie.release_date ? new Date(tmdbMovie.release_date).getFullYear() : 2024,
       rating: tmdbMovie.vote_average ? parseFloat(tmdbMovie.vote_average.toFixed(1)) : 0,
-      quality: tmdbMovie.vote_average >= 7 ? '4K' : tmdbMovie.vote_average >= 5 ? 'HD' : 'Zoom',
+      quality,
       audio: 'เสียงไทย',
       poster: getImageUrl(tmdbMovie.poster_path, 'w500'),
       backdrop: getBackdropUrl(tmdbMovie.backdrop_path, 'w1280'),

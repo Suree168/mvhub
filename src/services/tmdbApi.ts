@@ -1,7 +1,8 @@
 import axios from 'axios';
 
 // TMDB API Configuration
-const TMDB_API_KEY = import.meta.env.VITE_TMDB_API_KEY || 'YOUR_TMDB_API_KEY';
+// Hardcoded fallback so Vercel deployment works without .env
+const TMDB_API_KEY = import.meta.env.VITE_TMDB_API_KEY || '503341fe6d9d6630c68b8a7ec633fbad';
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 const TMDB_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p';
 
@@ -242,20 +243,21 @@ export const discoverMovies = async (params: {
 
 // Convert TMDB movie to our Movie format
 export const convertTMDBMovie = (tmdbMovie: any) => {
+  const quality = (tmdbMovie.vote_average >= 7 ? '4K' : tmdbMovie.vote_average >= 5 ? 'HD' : 'Zoom') as '4K' | 'HD' | 'Zoom';
   return {
     id: tmdbMovie.id.toString(),
-    title: tmdbMovie.title,
+    title: tmdbMovie.title || tmdbMovie.name || 'Unknown',
     titleTh: tmdbMovie.original_title !== tmdbMovie.title ? tmdbMovie.original_title : undefined,
-    year: new Date(tmdbMovie.release_date).getFullYear() || 2024,
-    rating: parseFloat(tmdbMovie.vote_average.toFixed(1)),
-    quality: tmdbMovie.vote_average >= 7 ? '4K' : tmdbMovie.vote_average >= 5 ? 'HD' : 'Zoom',
-    audio: 'เสียงไทย', // Default, can be changed based on availability
+    year: tmdbMovie.release_date ? (new Date(tmdbMovie.release_date).getFullYear() || 2024) : 2024,
+    rating: tmdbMovie.vote_average ? parseFloat(tmdbMovie.vote_average.toFixed(1)) : 0,
+    quality,
+    audio: 'เสียงไทย' as const,
     poster: getImageUrl(tmdbMovie.poster_path, 'w500'),
     backdrop: getBackdropUrl(tmdbMovie.backdrop_path, 'w1280'),
     genres: tmdbMovie.genre_ids?.map((id: number) => getGenreNameById(id)) || [],
     duration: tmdbMovie.runtime ? `${Math.floor(tmdbMovie.runtime / 60)}h ${tmdbMovie.runtime % 60}m` : undefined,
-    synopsis: tmdbMovie.overview,
-    isNew: new Date(tmdbMovie.release_date) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+    synopsis: tmdbMovie.overview || '',
+    isNew: tmdbMovie.release_date ? new Date(tmdbMovie.release_date) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) : false,
     isSeries: false,
   };
 };
